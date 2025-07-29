@@ -76,4 +76,4 @@ if prompt_usuario := st.chat_input("Digite sua mensagem..."):
                 message_placeholder.markdown(resposta_completa + "▌")
             message_placeholder.markdown(resposta_completa)
         except Exception as e:
-            st.error(f"Ocorreu
+            st.error(f"Ocorreu um erro ao processar sua mensagem. Verifique sua chave de API ou conexão. Detalhes: {e}")
