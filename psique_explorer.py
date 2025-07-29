@@ -1,63 +1,79 @@
-# Importamos o Streamlit e agora a biblioteca do Google para IA Generativa
+# Importamos as bibliotecas necessárias
 import streamlit as st
 import google.generativeai as genai
 
 # --- CONFIGURAÇÃO DA IA ---
-# Cole aqui a sua Chave de API que você acabou de gerar no Google AI Studio.
-# É crucial que ela esteja entre as aspas.
-GOOGLE_API_KEY = st.secrets["GOOGLE_API_KEY"]
-
-# Configura a biblioteca do Google com a sua chave.
-genai.configure(api_key=GOOGLE_API_KEY)
-# Define qual modelo de IA vamos usar.
-modelo = genai.GenerativeModel('gemini-1.5-flash')
-
-
-# --- A FUNÇÃO QUE "LIGA" PARA A IA ---
-def consultar_ia(conceito):
-    # Este é o "prompt", a instrução que damos para a IA.
-    # É aqui que a mágica acontece. Nós dizemos como ela deve se comportar.
-    prompt_template = f"""
-    Aja como um professor de psicologia especialista, chamado 'Psique Explorer'.
-    Sua missão é explicar o conceito psicológico '{conceito}' de forma clara, didática e estruturada para um estudante de graduação.
-    Siga EXATAMENTE esta estrutura de resposta, usando os títulos marcados com ###:
-
-    ### 👨‍🏫 Definição Formal
-    [Forneça a definição técnica e acadêmica do conceito aqui.]
-
-    ### 🗣️ 'Traduzindo' para o Português Claro
-    [Dê uma analogia ou uma metáfora simples e fácil de entender sobre o conceito aqui.]
-
-    ### 🚶‍♂️ Exemplo Prático
-    [Crie um cenário ou exemplo prático e cotidiano que ilustre o conceito em ação aqui.]
-
-    ### 🧠 Principal Teórico Associado
-    [Cite o principal psicólogo ou teórico associado a este conceito.]
-    """
-
-    # Envia o prompt para o modelo Gemini e espera a resposta.
-    resposta = modelo.generate_content(prompt_template)
-    return resposta.text
+# Esta parte é crucial. O Streamlit vai ler a chave do "cofre" (Secrets)
+# que configuramos na plataforma Streamlit Community Cloud.
+try:
+    GOOGLE_API_KEY = st.secrets["GOOGLE_API_KEY"]
+    genai.configure(api_key=GOOGLE_API_KEY)
+    modelo = genai.GenerativeModel('gemini-1.5-flash')
+except (FileNotFoundError, KeyError):
+    # Este bloco é um fallback para quando rodamos o app localmente
+    # e não temos um arquivo de secrets. Ele procura a chave em outro lugar.
+    # Se você for testar localmente, precisará configurar isso.
+    # Por enquanto, focaremos no funcionamento online.
+    st.error("Chave de API do Google não encontrada. Configure-a nos 'Secrets' do Streamlit Cloud.")
+    st.stop()
 
 
-# --- A INTERFACE DO SOFTWARE (A mesma de antes) ---
-st.title("🧠 Psique Explorer v2.0 (Conectado à IA)")
-st.write("Seu laboratório cognitivo de bolso, agora com o poder do Google AI.")
-st.markdown("---")
+# --- INTERFACE DO APLICATIVO ---
+st.title("🧠 Psique Explorer v3.0")
+st.caption("Seu tutor de psicologia com IA, agora com conversas abertas.")
 
-conceito_usuario = st.text_input("Digite QUALQUER conceito de Psicologia para explorar:")
+# Permite ao usuário escolher sua "persona"
+persona_selecionada = st.radio(
+    "Como você gostaria de interagir com a IA?",
+    ('Estou aqui para Aprender (Estudante)', 'Estou aqui para Debater (Professor)'),
+    horizontal=True
+)
 
-if st.button("Explorar Conceito"):
-    if conceito_usuario:
-        # Mostra uma mensagem de carregamento enquanto a "ligação" é feita.
-        with st.spinner(f"Consultando a biblioteca universal sobre '{conceito_usuario}'..."):
-            try:
-                # Chama a função que consulta a IA em tempo real.
-                resposta_formatada = consultar_ia(conceito_usuario)
-                # Exibe a resposta formatada na tela.
-                st.markdown(resposta_formatada)
-            except Exception as e:
-                # Se der algum erro (chave errada, problema de conexão), avisa o usuário.
-                st.error(f"Ocorreu um erro ao conectar com a IA. Verifique sua chave de API e conexão com a internet. Detalhes: {e}")
-    else:
-        st.error("Por favor, digite um conceito na caixa de texto.")
+# Define o comportamento inicial da IA com base na persona
+if persona_selecionada == 'Estou aqui para Aprender (Estudante)':
+    prompt_inicial = {
+        "role": "model",
+        "parts": ["Aja como um tutor de psicologia chamado 'Psique Explorer'. Você é paciente, didático e adora usar analogias e exemplos práticos. Seu objetivo é ajudar estudantes de graduação a entenderem conceitos complexos de forma simples. Comece se apresentando e perguntando qual o tópico de hoje."]
+    }
+else: # Professor
+    prompt_inicial = {
+        "role": "model",
+        "parts": ["Aja como um colega acadêmico especialista em psicologia. Você é preciso, técnico e capaz de debater nuances teóricas, comparar autores e sugerir materiais de pesquisa. Assuma que o usuário tem conhecimento prévio. Comece se apresentando de forma profissional e se colocando à disposição para o debate."]
+    }
+
+# --- GERENCIAMENTO DA MEMÓRIA DA CONVERSA ---
+# Usamos o 'st.session_state' para que o app não esqueça o histórico do chat
+if "historico_chat" not in st.session_state or st.session_state.get('persona_anterior') != persona_selecionada:
+    st.session_state.historico_chat = [prompt_inicial]
+    st.session_state.persona_anterior = persona_selecionada
+
+# Inicia o modelo de chat com o histórico guardado
+chat = modelo.start_chat(history=[m for m in st.session_state.historico_chat if m['role'] != 'model' or len(st.session_state.historico_chat) == 1])
+
+
+# --- EXIBIÇÃO DO CHAT ---
+# Mostra as mensagens antigas na tela
+for mensagem in st.session_state.historico_chat:
+    with st.chat_message(mensagem["role"]):
+        st.markdown(mensagem["parts"][0])
+
+# Pede por uma nova mensagem do usuário
+if prompt_usuario := st.chat_input("Digite sua mensagem..."):
+    # Adiciona a mensagem do usuário ao histórico e exibe na tela
+    st.session_state.historico_chat.append({"role": "user", "parts": [prompt_usuario]})
+    with st.chat_message("user"):
+        st.markdown(prompt_usuario)
+
+    # Envia a conversa para a IA e espera a resposta
+    with st.chat_message("model"):
+        message_placeholder = st.empty()
+        resposta_completa = ""
+        try:
+            # Envia a nova mensagem para o chat continuar a conversa
+            resposta = chat.send_message(prompt_usuario, stream=True)
+            for chunk in resposta:
+                resposta_completa += chunk.text
+                message_placeholder.markdown(resposta_completa + "▌")
+            message_placeholder.markdown(resposta_completa)
+        except Exception as e:
+            st.error(f"Ocorreu
